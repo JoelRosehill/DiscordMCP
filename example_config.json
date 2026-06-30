@@ -1,0 +1,62 @@
+{
+  "guild": {
+    "name": "Acme | Operations",
+    "verification_level": "medium",
+    "explicit_content_filter": "all_members",
+    "default_notifications": "only_mentions"
+  },
+  "roles": [
+    {
+      "name": "@everyone",
+      "color": "#000000",
+      "hoist": false,
+      "mentionable": false,
+      "permissions": []
+    },
+    {
+      "name": "Partners",
+      "color": "#2ECC71",
+      "hoist": false,
+      "mentionable": false,
+      "permissions": ["VIEW_CHANNEL", "SEND_MESSAGES", "READ_MESSAGE_HISTORY"]
+    },
+    {
+      "name": "Developers",
+      "color": "#00BCD4",
+      "hoist": false,
+      "mentionable": false,
+      "permissions": ["VIEW_CHANNEL", "SEND_MESSAGES", "EMBED_LINKS", "ATTACH_FILES", "READ_MESSAGE_HISTORY"]
+    },
+    {
+      "name": "Management",
+      "color": "#C0392B",
+      "hoist": true,
+      "mentionable": true,
+      "permissions": ["ADMINISTRATOR"]
+    }
+  ],
+  "categories": [
+    {
+      "name": "INFO",
+      "overwrites": [
+        { "role": "Developers", "allow": [], "deny": ["SEND_MESSAGES"] },
+        { "role": "Partners", "allow": [], "deny": ["SEND_MESSAGES"] }
+      ],
+      "channels": [
+        { "name": "announcements", "type": "text", "overwrites": [] },
+        { "name": "resources", "type": "text", "overwrites": [] }
+      ]
+    },
+    {
+      "name": "ENGINEERING",
+      "overwrites": [
+        { "role": "Partners", "allow": [], "deny": ["VIEW_CHANNEL"] },
+        { "role": "Developers", "allow": ["MANAGE_WEBHOOKS"], "deny": [] }
+      ],
+      "channels": [
+        { "name": "dev-chat", "type": "text", "overwrites": [] },
+        { "name": "git-logs", "type": "text", "overwrites": [] }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+# Environment / secrets
+.env
+
+# User config (use example_config.json as a template)
+config.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# OS
+.DS_Store
+Thumbs.db
