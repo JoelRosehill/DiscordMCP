@@ -4,5 +4,6 @@ python-dotenv>=1.0
 pyperclip>=1.8
 
 # For the live AI server manager (discord_builder.py server):
+# The AI runs locally via Ollama (https://ollama.com) — no Python package or
+# API key needed; the bot talks to it over HTTP with `requests`.
 discord.py>=2.3
-anthropic>=0.40
