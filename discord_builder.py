@@ -56,6 +56,48 @@ VERIFICATION = {"low": 1, "medium": 2, "high": 3, "highest": 4}
 CONTENT_FILTER = {"disabled": 0, "members_without_roles": 1, "all_members": 2}
 NOTIFICATIONS = {"all_messages": 0, "only_mentions": 1}
 
+# ---------------------------------------------------------------------------
+# Introspection lookups (decode the raw values Discord hands back)
+# ---------------------------------------------------------------------------
+VERIFICATION_REV = {v: k for k, v in VERIFICATION.items()}
+CONTENT_FILTER_REV = {v: k for k, v in CONTENT_FILTER.items()}
+NOTIFICATIONS_REV = {v: k for k, v in NOTIFICATIONS.items()}
+
+# Full Discord permission table (bit position -> name). Broader than PERMS on
+# purpose: apply only writes the common flags, but inspect should be able to
+# decode whatever a live server already has set.
+ALL_PERMS = {
+    0: "CREATE_INSTANT_INVITE", 1: "KICK_MEMBERS", 2: "BAN_MEMBERS",
+    3: "ADMINISTRATOR", 4: "MANAGE_CHANNELS", 5: "MANAGE_GUILD",
+    6: "ADD_REACTIONS", 7: "VIEW_AUDIT_LOG", 8: "PRIORITY_SPEAKER",
+    9: "STREAM", 10: "VIEW_CHANNEL", 11: "SEND_MESSAGES",
+    12: "SEND_TTS_MESSAGES", 13: "MANAGE_MESSAGES", 14: "EMBED_LINKS",
+    15: "ATTACH_FILES", 16: "READ_MESSAGE_HISTORY", 17: "MENTION_EVERYONE",
+    18: "USE_EXTERNAL_EMOJIS", 19: "VIEW_GUILD_INSIGHTS", 20: "CONNECT",
+    21: "SPEAK", 22: "MUTE_MEMBERS", 23: "DEAFEN_MEMBERS", 24: "MOVE_MEMBERS",
+    25: "USE_VAD", 26: "CHANGE_NICKNAME", 27: "MANAGE_NICKNAMES",
+    28: "MANAGE_ROLES", 29: "MANAGE_WEBHOOKS", 30: "MANAGE_GUILD_EXPRESSIONS",
+    31: "USE_APPLICATION_COMMANDS", 32: "REQUEST_TO_SPEAK", 33: "MANAGE_EVENTS",
+    34: "MANAGE_THREADS", 35: "CREATE_PUBLIC_THREADS", 36: "CREATE_PRIVATE_THREADS",
+    37: "USE_EXTERNAL_STICKERS", 38: "SEND_MESSAGES_IN_THREADS",
+    39: "USE_EMBEDDED_ACTIVITIES", 40: "MODERATE_MEMBERS",
+    41: "VIEW_CREATOR_MONETIZATION_ANALYTICS", 42: "USE_SOUNDBOARD",
+    43: "CREATE_GUILD_EXPRESSIONS", 44: "CREATE_EVENTS", 45: "USE_EXTERNAL_SOUNDS",
+    46: "SEND_VOICE_MESSAGES", 49: "SEND_POLLS", 50: "USE_EXTERNAL_APPS",
+}
+
+# Discord channel type -> human label (and whether apply can recreate it).
+CHANNEL_TYPES = {
+    0: "text", 1: "dm", 2: "voice", 3: "group_dm", 4: "category",
+    5: "announcement", 10: "announcement_thread", 11: "public_thread",
+    12: "private_thread", 13: "stage", 14: "directory", 15: "forum",
+    16: "media",
+}
+CHANNEL_ICONS = {
+    "text": "#", "voice": "\U0001F50A", "announcement": "\U0001F4E3",
+    "stage": "\U0001F3A4", "forum": "\U0001F5E3", "media": "\U0001F5BC",
+}
+
 SCHEMA_PROMPT = """I want you to act as a Discord server configuration generator.
 
 Ask me a few clarifying questions first if you need more detail (who's involved, what should be private vs shared, whether voice channels are needed). Once you have enough information, respond with ONLY a single JSON object — no prose, no markdown code fences, no explanation — matching exactly this schema:
@@ -294,6 +336,28 @@ def perm_str(names):
     return str(total)
 
 
+def decode_perms(value):
+    """Turn a Discord permission bitfield string into a list of flag names."""
+    try:
+        bits = int(value)
+    except (TypeError, ValueError):
+        return []
+    names = []
+    for i in range(64):
+        if bits & (1 << i):
+            names.append(ALL_PERMS.get(i, f"UNKNOWN_BIT_{i}"))
+    return names
+
+
+def int_to_hex(color):
+    """Discord role colors come back as ints; 0 means 'no color'."""
+    try:
+        color = int(color)
+    except (TypeError, ValueError):
+        return "#000000"
+    return f"#{color:06X}"
+
+
 class DiscordAPI:
     def __init__(self, token):
         self.headers = {"Authorization": f"Bot {token}", "Content-Type": "application/json"}
@@ -409,6 +473,227 @@ def cmd_apply(path, yes=False):
 
 
 # ---------------------------------------------------------------------------
+# inspect  —  read a live server and show/export everything it contains
+# ---------------------------------------------------------------------------
+def _overwrite_summary(overwrites, id_to_role):
+    """Compact 'RoleName +N/-M' string for a channel's permission overwrites."""
+    parts = []
+    for o in overwrites or []:
+        if str(o.get("type")) not in ("0", "role"):
+            continue  # skip member-specific overwrites
+        name = id_to_role.get(o.get("id"), o.get("id"))
+        allow = len(decode_perms(o.get("allow")))
+        deny = len(decode_perms(o.get("deny")))
+        bits = []
+        if allow:
+            bits.append(f"[{GOOD}]+{allow}[/{GOOD}]")
+        if deny:
+            bits.append(f"[{BAD}]-{deny}[/{BAD}]")
+        parts.append(f"{escape(str(name))} {' '.join(bits)}".strip())
+    return "  ".join(parts)
+
+
+def render_inspection(guild, roles, channels, emojis, stickers):
+    id_to_role = {r["id"]: r["name"] for r in roles}
+
+    # --- Guild summary -----------------------------------------------------
+    approx_members = guild.get("approximate_member_count")
+    approx_online = guild.get("approximate_presence_count")
+    features = guild.get("features") or []
+    lines = [
+        f"[bold white]{escape(guild.get('name', '?'))}[/bold white]  [dim]#{guild.get('id')}[/dim]",
+    ]
+    if guild.get("description"):
+        lines.append(f"[dim]{escape(guild['description'])}[/dim]")
+    lines.append("")
+    lines.append(f"Members: [bold]{approx_members if approx_members is not None else '?'}[/bold]"
+                 f"   Online: [bold]{approx_online if approx_online is not None else '?'}[/bold]")
+    lines.append(
+        "Verification: [bold]{}[/bold]   Content filter: [bold]{}[/bold]   Notifications: [bold]{}[/bold]".format(
+            VERIFICATION_REV.get(guild.get("verification_level"), guild.get("verification_level")),
+            CONTENT_FILTER_REV.get(guild.get("explicit_content_filter"), guild.get("explicit_content_filter")),
+            NOTIFICATIONS_REV.get(guild.get("default_message_notifications"), guild.get("default_message_notifications")),
+        )
+    )
+    lines.append(
+        f"Boost tier: [bold]{guild.get('premium_tier', 0)}[/bold]"
+        f"   Boosts: [bold]{guild.get('premium_subscription_count', 0)}[/bold]"
+        f"   Emojis: [bold]{len(emojis)}[/bold]   Stickers: [bold]{len(stickers)}[/bold]"
+    )
+    if features:
+        lines.append(f"[dim]Features: {escape(', '.join(sorted(features)))}[/dim]")
+    console.print(Panel(Text.from_markup("\n".join(lines)),
+                        title="Server", border_style=ACCENT, box=box.ROUNDED))
+
+    # --- Roles (highest authority first, the way Discord shows them) --------
+    table = Table(title="Roles (top → bottom)", box=box.SIMPLE, show_edge=False)
+    table.add_column("Role")
+    table.add_column("Color")
+    table.add_column("Flags")
+    table.add_column("Permissions")
+    for r in sorted(roles, key=lambda x: x.get("position", 0), reverse=True):
+        color = int_to_hex(r.get("color"))
+        color_disp = color if r.get("color") else "[dim]none[/dim]"
+        flags = []
+        if r.get("hoist"):
+            flags.append("hoist")
+        if r.get("mentionable"):
+            flags.append("mention")
+        if r.get("managed"):
+            flags.append("[dim]managed[/dim]")
+        perms = decode_perms(r.get("permissions"))
+        if "ADMINISTRATOR" in perms:
+            perm_disp = f"[{WARN}]ADMINISTRATOR[/{WARN}] [dim](all)[/dim]"
+        else:
+            perm_disp = escape(", ".join(perms)) or "[dim]none[/dim]"
+        name_disp = f"[{color}]{escape(r['name'])}[/{color}]" if r.get("color") else escape(r["name"])
+        table.add_row(name_disp, escape(color_disp) if r.get("color") else color_disp,
+                      " ".join(flags) or "[dim]—[/dim]", perm_disp)
+    console.print(table)
+
+    # --- Channel tree ------------------------------------------------------
+    cats = {c["id"]: c for c in channels if c.get("type") == 4}
+    tree = Tree("[bold]Channels[/bold]")
+    branches = {}
+    for cid, c in sorted(cats.items(), key=lambda kv: kv[1].get("position", 0)):
+        label = f"[bold {ACCENT}]{escape(c['name'])}[/bold {ACCENT}]"
+        ow = _overwrite_summary(c.get("permission_overwrites"), id_to_role)
+        if ow:
+            label += f"   [dim]{ow}[/dim]"
+        branches[cid] = tree.add(label)
+
+    orphan = tree.add("[dim](no category)[/dim]")
+    non_cats = [c for c in channels if c.get("type") != 4
+                and c.get("type") not in (10, 11, 12)]  # skip threads
+    for ch in sorted(non_cats, key=lambda x: (x.get("position", 0), x.get("name", ""))):
+        ctype = CHANNEL_TYPES.get(ch.get("type"), str(ch.get("type")))
+        icon = CHANNEL_ICONS.get(ctype, "#")
+        label = f"[dim]{icon} {escape(ch['name'])}[/dim]"
+        ow = _overwrite_summary(ch.get("permission_overwrites"), id_to_role)
+        if ow:
+            label += f"   [dim]{ow}[/dim]"
+        parent = branches.get(ch.get("parent_id"), orphan)
+        parent.add(label)
+    if not orphan.children:
+        tree.children.remove(orphan)
+    console.print(tree)
+
+
+def export_config(guild, roles, channels):
+    """Reverse the live server into an apply-compatible config, plus a
+    read-only `meta` block that captures the extra context apply can't set."""
+    id_to_role = {r["id"]: r["name"] for r in roles}
+
+    def ow_list(overwrites):
+        out = []
+        for o in overwrites or []:
+            if str(o.get("type")) not in ("0", "role"):
+                continue
+            name = id_to_role.get(o.get("id"))
+            if not name:
+                continue
+            out.append({
+                "role": name,
+                "allow": decode_perms(o.get("allow")),
+                "deny": decode_perms(o.get("deny")),
+            })
+        return out
+
+    ordered_roles = sorted(roles, key=lambda x: x.get("position", 0))  # lowest → highest
+    cfg_roles = []
+    for r in ordered_roles:
+        cfg_roles.append({
+            "name": r["name"],
+            "color": int_to_hex(r.get("color")),
+            "hoist": bool(r.get("hoist")),
+            "mentionable": bool(r.get("mentionable")),
+            "permissions": decode_perms(r.get("permissions")),
+        })
+
+    cats = sorted([c for c in channels if c.get("type") == 4],
+                  key=lambda x: x.get("position", 0))
+    cfg_categories = []
+    for cat in cats:
+        kids = [c for c in channels if c.get("parent_id") == cat["id"]
+                and c.get("type") in (0, 2, 5)]
+        cfg_categories.append({
+            "name": cat["name"],
+            "overwrites": ow_list(cat.get("permission_overwrites")),
+            "channels": [{
+                "name": ch["name"],
+                "type": "voice" if ch.get("type") == 2 else "text",
+                "overwrites": ow_list(ch.get("permission_overwrites")),
+            } for ch in sorted(kids, key=lambda x: x.get("position", 0))],
+        })
+
+    return {
+        "guild": {
+            "name": guild.get("name"),
+            "verification_level": VERIFICATION_REV.get(guild.get("verification_level"), "medium"),
+            "explicit_content_filter": CONTENT_FILTER_REV.get(guild.get("explicit_content_filter"), "all_members"),
+            "default_notifications": NOTIFICATIONS_REV.get(guild.get("default_message_notifications"), "only_mentions"),
+        },
+        "roles": cfg_roles,
+        "categories": cfg_categories,
+        "meta": {
+            "guild_id": guild.get("id"),
+            "description": guild.get("description"),
+            "approximate_member_count": guild.get("approximate_member_count"),
+            "approximate_presence_count": guild.get("approximate_presence_count"),
+            "premium_tier": guild.get("premium_tier"),
+            "premium_subscription_count": guild.get("premium_subscription_count"),
+            "features": guild.get("features"),
+            "channel_types": {
+                CHANNEL_TYPES.get(t, str(t)): sum(1 for c in channels if c.get("type") == t)
+                for t in sorted({c.get("type") for c in channels})
+            },
+        },
+    }
+
+
+def cmd_inspect(guild_id=None, json_out=None):
+    load_dotenv()
+    token = os.environ.get("DISCORD_BOT_TOKEN")
+    guild_id = guild_id or os.environ.get("DISCORD_GUILD_ID")
+
+    step_header(1, "Inspect a live server")
+    if not token:
+        fail("DISCORD_BOT_TOKEN must be set in your .env file.")
+        return None
+    if not guild_id:
+        fail("No guild ID — pass one as an argument or set DISCORD_GUILD_ID in .env.")
+        return None
+
+    api = DiscordAPI(token)
+    try:
+        info("Fetching server...")
+        guild = api.call("GET", f"/guilds/{guild_id}?with_counts=true")
+        roles = api.call("GET", f"/guilds/{guild_id}/roles") or []
+        channels = api.call("GET", f"/guilds/{guild_id}/channels") or []
+        emojis = api.call("GET", f"/guilds/{guild_id}/emojis") or []
+        stickers = api.call("GET", f"/guilds/{guild_id}/stickers") or []
+    except RuntimeError as e:
+        fail(str(e))
+        return None
+    except requests.RequestException as e:
+        fail(f"Network error: {e}")
+        return None
+
+    ok(f"Read {len(roles)} role(s), {len(channels)} channel(s), "
+       f"{len(emojis)} emoji(s), {len(stickers)} sticker(s).")
+    console.print()
+    render_inspection(guild, roles, channels, emojis, stickers)
+
+    cfg = export_config(guild, roles, channels)
+    if json_out:
+        with open(json_out, "w") as f:
+            json.dump(cfg, f, indent=2)
+        console.print()
+        ok(f"Full config exported to {json_out}")
+    return cfg
+
+
+# ---------------------------------------------------------------------------
 # interactive menu
 # ---------------------------------------------------------------------------
 def interactive():
@@ -417,7 +702,7 @@ def interactive():
         console.print()
         choice = Prompt.ask(
             "What do you want to do?",
-            choices=["prompt", "validate", "apply", "exit"],
+            choices=["prompt", "validate", "apply", "inspect", "exit"],
             default="prompt",
         )
         if choice == "prompt":
@@ -428,6 +713,10 @@ def interactive():
         elif choice == "apply":
             path = Prompt.ask("Path to the JSON config file")
             cmd_apply(path)
+        elif choice == "inspect":
+            gid = Prompt.ask("Guild ID (blank to use DISCORD_GUILD_ID from .env)", default="")
+            save = Prompt.ask("Export path for the full config (blank to skip)", default="")
+            cmd_inspect(gid or None, save or None)
         else:
             break
 
@@ -448,6 +737,12 @@ def main():
     p_apply.add_argument("config", help="Path to config JSON")
     p_apply.add_argument("-y", "--yes", action="store_true", help="Skip the confirmation prompt")
 
+    p_inspect = sub.add_parser("inspect", help="Read a live server: roles, permissions, channels, and more")
+    p_inspect.add_argument("guild_id", nargs="?", default=None,
+                           help="Guild ID to inspect (defaults to DISCORD_GUILD_ID from .env)")
+    p_inspect.add_argument("--json", dest="json_out", default=None,
+                           help="Export the full server config to this JSON file")
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -461,6 +756,8 @@ def main():
         cmd_validate(args.config)
     elif args.command == "apply":
         cmd_apply(args.config, args.yes)
+    elif args.command == "inspect":
+        cmd_inspect(args.guild_id, args.json_out)
 
 
 if __name__ == "__main__":

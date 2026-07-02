@@ -28,6 +28,7 @@
 | :white_check_mark: **Strict Validation** | Checks roles, permissions, channel overwrites against Discord's API schema — catches mistakes before they reach your server. |
 | :rocket: **One-Click Apply** | Pushes the full configuration to your Discord server: guild settings, roles (with hierarchy), categories, channels, and permission overwrites. |
 | :framed_picture: **Rich Preview** | Uses the `rich` library to render colorful tables of roles and tree views of your channel structure before applying. |
+| :mag: **Live Server Inspection** | Read an existing server back out — roles with decoded permissions, channel/category tree with overwrites, plus boosts, features, emojis and member counts — and export it all to a re-appliable JSON config. |
 | :shield: **Safe by Default** | Rate-limit aware, confirmation prompts before destructive changes, and full validation before any API calls. |
 
 ## How It Works
@@ -88,7 +89,7 @@ echo "DISCORD_GUILD_ID=your-server-id"  >> .env
 python discord_builder.py
 ```
 
-Opens a menu where you can choose between `prompt`, `validate`, `apply`, and `exit`.
+Opens a menu where you can choose between `prompt`, `validate`, `apply`, `inspect`, and `exit`.
 
 ### Commands
 
@@ -107,7 +108,38 @@ cat config.json | python discord_builder.py validate -
 python discord_builder.py apply config.json
 # Skip the confirmation prompt:
 python discord_builder.py apply config.json -y
+
+# Inspect a live server (uses DISCORD_GUILD_ID from .env, or pass an ID)
+python discord_builder.py inspect
+python discord_builder.py inspect 123456789012345678
+# Export the whole server to a re-appliable JSON config:
+python discord_builder.py inspect --json my_server.json
 ```
+
+### Inspecting an Existing Server
+
+`inspect` is the read-only mirror of `apply` — instead of pushing a config to
+Discord, it pulls the current state of a live server back out so you can see
+exactly what's there and capture maximal context:
+
+- **Server summary** — name, description, member/online counts, verification
+  level, content filter, notification defaults, boost tier, boost count,
+  emoji/sticker counts, and enabled guild features.
+- **Roles table** — every role top→bottom with its color, `hoist`/`mentionable`
+  flags, whether it's bot-`managed`, and its full decoded permission list
+  (`ADMINISTRATOR` is highlighted since it grants everything).
+- **Channel tree** — categories and their channels (text/voice/announcement/
+  stage/forum) with a compact `+allow / -deny` summary of each role overwrite;
+  channels with no category are grouped separately and threads are skipped.
+
+With `--json`, the entire server is exported to a config that plugs straight
+back into `validate` and `apply`, plus a read-only `meta` block holding the
+extra context (guild ID, member counts, boosts, features, channel-type
+breakdown) that `apply` doesn't set. Handy for backing up a server, cloning it,
+or diffing what's live against what you intend to apply.
+
+> The bot only needs to be a member of the server with `View Channels` /
+> `Manage Roles` to inspect it — no destructive permissions required.
 
 ## Config Format
 
