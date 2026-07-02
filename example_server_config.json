@@ -1,6 +1,6 @@
 {
   "ollama_host": "http://localhost:11434",
-  "model": "llama3.1",
+  "model": "gemma4:12b",
   "temperature": 0.0,
   "admin_channel": "server-admin",
   "require_manage_guild": true,

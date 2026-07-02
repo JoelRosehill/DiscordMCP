@@ -17,7 +17,7 @@ Setup:
     echo "DISCORD_GUILD_ID=your-server-id"    >> .env
 
     # Install Ollama (https://ollama.com) and pull a tool-capable model:
-    ollama pull llama3.1        # or qwen2.5, mistral-nemo, etc.
+    ollama pull gemma4:12b      # native tool-calling; or qwen2.5, llama3.1, etc.
 
 Then either run it directly, or via the CLI:
     ./discord_agent.py
@@ -49,7 +49,7 @@ DEFAULT_CONFIG = {
     # Ollama runs locally and handles the AI. Default is the standard port.
     "ollama_host": "http://localhost:11434",
     # Must be a tool-calling capable model you've pulled (ollama pull <model>).
-    "model": "llama3.1",
+    "model": "gemma4:12b",
     # Sampling temperature for the model.
     "temperature": 0.0,
     # Channel the bot listens in. Matched by name (without '#') or by raw ID.
@@ -347,7 +347,7 @@ class ManagerAgent:
         self.config = config
         self.tools = build_tools()
         self.host = config.get("ollama_host", "http://localhost:11434").rstrip("/")
-        self.model = config.get("model", "llama3.1")
+        self.model = config.get("model", "gemma4:12b")
         self.history = {}  # channel_id -> list[message dict]
 
     def _chat(self, messages):
@@ -407,7 +407,7 @@ class ManagerAgent:
                         out = self.manager.run_tool(name, args)
                     except (RuntimeError, requests.RequestException) as e:
                         out = f"Error: {e}"
-                    actions.append(f"{name} → {out}")
+                    actions.append((name, out))
                     messages.append({"role": "tool", "tool_name": name, "content": out})
                 continue
 
@@ -426,9 +426,9 @@ class ManagerAgent:
 
         if actions:
             print("  actions:")
-            for a in actions:
-                print(f"    - {a}")
-        return final_text or "Done."
+            for name, out in actions:
+                print(f"    - {name} → {out}")
+        return final_text or "Done.", actions
 
 
 # ---------------------------------------------------------------------------
@@ -437,6 +437,15 @@ class ManagerAgent:
 def _chunk(text, size=1900):
     for i in range(0, len(text), size):
         yield text[i:i + size]
+
+
+def _format_reply(reply, actions):
+    """Combine the model's reply with a log of every change it applied, so the
+    channel shows both what it said and exactly what it did."""
+    if not actions:
+        return reply
+    log = "\n".join(f"• {out}" for _, out in actions)
+    return f"{reply}\n\n**🛠️ Changes applied:**\n{log}"
 
 
 def _ollama_ready(host, model):
@@ -469,7 +478,7 @@ def run_server(config_path="server_config.json"):
 
     config = load_server_config(config_path)
     host = config.get("ollama_host", "http://localhost:11434")
-    model = config.get("model", "llama3.1")
+    model = config.get("model", "gemma4:12b")
 
     ready = _ollama_ready(host, model)
     if ready is None:
@@ -518,11 +527,11 @@ def run_server(config_path="server_config.json"):
 
         async with message.channel.typing():
             try:
-                reply = await asyncio.to_thread(
+                reply, actions = await asyncio.to_thread(
                     agent.run_turn, str(message.channel.id), message.content.strip())
             except Exception as e:  # surface anything rather than dying silently
-                reply = f"Something went wrong: {e}"
-        for chunk in _chunk(reply):
+                reply, actions = f"Something went wrong: {e}", []
+        for chunk in _chunk(_format_reply(reply, actions)):
             await message.channel.send(chunk)
 
     client.run(token)

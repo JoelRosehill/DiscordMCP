@@ -145,54 +145,86 @@ or diffing what's live against what you intend to apply.
 ### Live AI Server Manager (`server`)
 
 Instead of the one-shot generate → apply flow, the `server` command launches a
-long-running bot that lives in your server and manages it conversationally. You
-talk to it in a dedicated admin channel; for **every** message it first pulls a
-fresh snapshot of the server (guild settings, roles + decoded permissions,
-categories, channels) so it always has current context, then carries out the
-change by calling real Discord API tools — creating/editing/deleting roles and
-channels, setting permission overwrites, and updating server settings.
+long-running bot that lives in your server and manages it conversationally.
+**You just type what you want in a dedicated admin channel** — the bot pulls the
+full current state of the server on its own, makes the change, and posts a log of
+exactly what it did back into that same channel.
+
+The loop, for every message you send:
+
+1. **You prompt it** in plain English (e.g. *"lock down #general so only mods can post"*).
+2. **It auto-gathers context** — before doing anything it fetches a fresh snapshot
+   of the whole server (guild settings, every role with decoded permissions, all
+   categories and channels with their overwrites), so it never works from stale
+   assumptions.
+3. **It implements** the change by calling real Discord API tools —
+   create/edit/delete roles and channels, set permission overwrites, update
+   server settings.
+4. **It logs everything back in the channel** — its reply includes a
+   `🛠️ Changes applied` list of every action it took, so there's a visible
+   audit trail right where you asked.
 
 The AI runs entirely on your own machine via [**Ollama**](https://ollama.com) on
-port `11434` — no API keys, nothing leaves your network.
+port `11434` — no API keys, nothing leaves your network. This is set up to use
+**Google's Gemma 4 12B** (`gemma4:12b`), which has native tool-calling.
+
+#### Setup (start to finish)
 
 ```bash
-# 1. Install Ollama and pull a tool-calling capable model
-ollama pull llama3.1        # or qwen2.5, mistral-nemo, etc.
+# 1. Install the dependencies
+pip install -r requirements.txt
 
-# 2. (Optional) copy the example config and tweak it
+# 2. Install Ollama (https://ollama.com), then pull the model
+ollama pull gemma4:12b
+#    (confirm it can call tools — you should see "tools" listed:)
+ollama show gemma4:12b
+
+# 3. Point the bot at your Discord server via .env
+echo "DISCORD_BOT_TOKEN=your-bot-token" >> .env
+echo "DISCORD_GUILD_ID=your-server-id"  >> .env
+
+# 4. (Optional) copy the example config to tweak behaviour
 cp example_server_config.json server_config.json
 
-# 3. Launch the bot (Discord credentials come from .env as usual)
+# 5. In your Discord server, create the admin channel the bot listens in
+#    (default name: #server-admin) and invite the bot to the server.
+
+# 6. Launch it
 python discord_builder.py server
-# or run the module directly:
-python discord_agent.py
+#    or run the module directly:  python discord_agent.py
 ```
 
-Then, in the admin channel:
+On startup it checks that Ollama is reachable and `gemma4:12b` is pulled, and
+prints a warning telling you exactly what to run if either is missing.
+
+#### Using it
+
+In the `#server-admin` channel, just talk to the bot:
 
 ```text
 you: create a #announcements channel that only the Mods role can post in
-bot: Created the #announcements text channel and locked it down — @everyone can
-     view and read but can't send; Mods keep send access. ✅
 
-you: give the Moderators role kick and timeout permissions, and hoist it
-bot: Updated Moderators: added Kick Members and Moderate Members, and it now
-     shows separately in the member list.
+bot: Done — @everyone can read #announcements but can't post; Mods keep send access.
+
+     🛠️ Changes applied:
+     • Created text channel "announcements" (id 123456789012345678).
+     • Set overwrite on "announcements" for "@everyone" (allow [], deny ['SEND_MESSAGES']).
+     • Set overwrite on "announcements" for "Mods" (allow ['SEND_MESSAGES'], deny []).
 ```
 
-**How it stays in context:** the model (whatever tool-capable model you run in
-Ollama) receives the live server snapshot on every turn, so it never works from
-stale assumptions. It keeps a short per-channel conversation history for
-follow-ups ("actually make it voice instead"), and carries out each action
-through a typed tool rather than guessing.
+Follow-ups work because it keeps a short per-channel history ("actually make it
+voice instead"), and destructive or ambiguous requests are confirmed in chat
+before anything changes.
 
-**Configuration** (`server_config.json`, all optional — see
+#### Configuration
+
+`server_config.json` (all fields optional — see
 [`example_server_config.json`](example_server_config.json)):
 
 | Field | Default | Description |
 |---|---|---|
-| `ollama_host` | `"http://localhost:11434"` | Where Ollama is listening. Override with the `OLLAMA_HOST` env var. |
-| `model` | `"llama3.1"` | The Ollama model to use — must support tool calling (e.g. `llama3.1`, `qwen2.5`, `mistral-nemo`). Override with `OLLAMA_MODEL`. |
+| `model` | `"gemma4:12b"` | The Ollama model — must support tool calling. Override with the `OLLAMA_MODEL` env var. |
+| `ollama_host` | `"http://localhost:11434"` | Where Ollama is listening. Override with `OLLAMA_HOST`. |
 | `temperature` | `0.0` | Sampling temperature. |
 | `admin_channel` | `"server-admin"` | Channel the bot listens in (name without `#`, or a raw channel ID). Override with `DISCORD_ADMIN_CHANNEL`. |
 | `require_manage_guild` | `true` | Only members with **Manage Server** (or Administrator) can command the bot. |
@@ -201,11 +233,10 @@ through a typed tool rather than guessing.
 | `persona` | `""` | Extra house-rules appended to the system prompt (naming conventions, tone, etc.). |
 
 > **Requirements:** [Ollama](https://ollama.com) running locally with a
-> **tool-calling capable** model pulled; enable the **Message Content**
-> privileged intent for your bot in the Discord Developer Portal, and give it
-> `Manage Roles`, `Manage Channels`, and `Manage Server` permissions. The bot
-> can only manage roles below its own in the hierarchy. Destructive or ambiguous
-> requests are confirmed in chat before anything is changed.
+> **tool-calling capable** model pulled (`gemma4:12b` recommended); enable the
+> **Message Content** privileged intent for your bot in the Discord Developer
+> Portal, and give it `Manage Roles`, `Manage Channels`, and `Manage Server`
+> permissions. The bot can only manage roles below its own in the hierarchy.
 
 ## Config Format
 
