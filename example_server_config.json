@@ -1,0 +1,8 @@
+{
+  "admin_channel": "server-admin",
+  "require_manage_guild": true,
+  "allow_deletes": true,
+  "effort": "high",
+  "max_history_turns": 12,
+  "persona": "Prefer lowercase-hyphenated channel names. Keep the role hierarchy tidy and explain trade-offs briefly when a request has security implications."
+}
