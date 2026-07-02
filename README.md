@@ -29,7 +29,7 @@
 | :rocket: **One-Click Apply** | Pushes the full configuration to your Discord server: guild settings, roles (with hierarchy), categories, channels, and permission overwrites. |
 | :framed_picture: **Rich Preview** | Uses the `rich` library to render colorful tables of roles and tree views of your channel structure before applying. |
 | :mag: **Live Server Inspection** | Read an existing server back out — roles with decoded permissions, channel/category tree with overwrites, plus boosts, features, emojis and member counts — and export it all to a re-appliable JSON config. |
-| :robot: **Live AI Server Manager** | Run a Python bot that listens in a dedicated admin channel and manages your server from plain-English chat. It re-reads the live server every message, so it always acts on current context, and carries out changes through real Discord API tools. |
+| :robot: **Live AI Server Manager** | Run a Python bot that listens in a dedicated admin channel and manages your server from plain-English chat. Powered by a **local Ollama model** (no API keys, nothing leaves your network). It re-reads the live server every message, so it always acts on current context, and carries out changes through real Discord API tools. |
 | :shield: **Safe by Default** | Rate-limit aware, confirmation prompts before destructive changes, and full validation before any API calls. |
 
 ## How It Works
@@ -152,14 +152,17 @@ categories, channels) so it always has current context, then carries out the
 change by calling real Discord API tools — creating/editing/deleting roles and
 channels, setting permission overwrites, and updating server settings.
 
+The AI runs entirely on your own machine via [**Ollama**](https://ollama.com) on
+port `11434` — no API keys, nothing leaves your network.
+
 ```bash
-# 1. Add your Anthropic API key alongside the Discord credentials
-echo "ANTHROPIC_API_KEY=sk-ant-..." >> .env
+# 1. Install Ollama and pull a tool-calling capable model
+ollama pull llama3.1        # or qwen2.5, mistral-nemo, etc.
 
 # 2. (Optional) copy the example config and tweak it
 cp example_server_config.json server_config.json
 
-# 3. Launch the bot
+# 3. Launch the bot (Discord credentials come from .env as usual)
 python discord_builder.py server
 # or run the module directly:
 python discord_agent.py
@@ -177,29 +180,32 @@ bot: Updated Moderators: added Kick Members and Moderate Members, and it now
      shows separately in the member list.
 ```
 
-**How it stays in context:** the model is powered by Claude (`claude-opus-4-8`
-with adaptive thinking) and receives the live server snapshot on every turn, so
-it never works from stale assumptions. It keeps a short per-channel
-conversation history for follow-ups ("actually make it voice instead"), and
-carries out each action through a typed tool rather than guessing.
+**How it stays in context:** the model (whatever tool-capable model you run in
+Ollama) receives the live server snapshot on every turn, so it never works from
+stale assumptions. It keeps a short per-channel conversation history for
+follow-ups ("actually make it voice instead"), and carries out each action
+through a typed tool rather than guessing.
 
 **Configuration** (`server_config.json`, all optional — see
 [`example_server_config.json`](example_server_config.json)):
 
 | Field | Default | Description |
 |---|---|---|
-| `admin_channel` | `"server-admin"` | Channel the bot listens in (name without `#`, or a raw channel ID). Override per-run with the `DISCORD_ADMIN_CHANNEL` env var. |
+| `ollama_host` | `"http://localhost:11434"` | Where Ollama is listening. Override with the `OLLAMA_HOST` env var. |
+| `model` | `"llama3.1"` | The Ollama model to use — must support tool calling (e.g. `llama3.1`, `qwen2.5`, `mistral-nemo`). Override with `OLLAMA_MODEL`. |
+| `temperature` | `0.0` | Sampling temperature. |
+| `admin_channel` | `"server-admin"` | Channel the bot listens in (name without `#`, or a raw channel ID). Override with `DISCORD_ADMIN_CHANNEL`. |
 | `require_manage_guild` | `true` | Only members with **Manage Server** (or Administrator) can command the bot. |
 | `allow_deletes` | `true` | Whether the bot may delete roles/channels. Set `false` for a read/create-only bot. |
-| `effort` | `"high"` | Claude reasoning effort: `low` / `medium` / `high` / `max`. |
 | `max_history_turns` | `12` | How many prior turns of conversation to remember per channel. |
 | `persona` | `""` | Extra house-rules appended to the system prompt (naming conventions, tone, etc.). |
 
-> **Requirements:** enable the **Message Content** privileged intent for your
-> bot in the Discord Developer Portal, and give it `Manage Roles`,
-> `Manage Channels`, and `Manage Server` permissions. The bot can only manage
-> roles below its own in the hierarchy. Destructive or ambiguous requests are
-> confirmed in chat before anything is changed.
+> **Requirements:** [Ollama](https://ollama.com) running locally with a
+> **tool-calling capable** model pulled; enable the **Message Content**
+> privileged intent for your bot in the Discord Developer Portal, and give it
+> `Manage Roles`, `Manage Channels`, and `Manage Server` permissions. The bot
+> can only manage roles below its own in the hierarchy. Destructive or ambiguous
+> requests are confirmed in chat before anything is changed.
 
 ## Config Format
 
@@ -291,7 +297,7 @@ python discord_builder.py apply my_server.json
 ├── config.json                # Your configuration (gitignored)
 ├── server_config.json         # Your bot config (optional)
 ├── requirements.txt           # Python dependencies
-├── .env                       # Bot credentials + ANTHROPIC_API_KEY (gitignored)
+├── .env                       # Discord bot credentials (gitignored)
 ├── assets/               # SVG screenshots for README
 │   ├── banner.svg
 │   ├── validate.svg
