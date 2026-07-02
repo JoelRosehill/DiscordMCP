@@ -358,6 +358,20 @@ def int_to_hex(color):
     return f"#{color:06X}"
 
 
+# Reverse of ALL_PERMS, so callers can encode any known permission name (not
+# just the apply-time subset in PERMS) back into a Discord bitfield string.
+NAME_TO_BIT = {name: bit for bit, name in ALL_PERMS.items()}
+
+
+def encode_perms(names):
+    """Turn a list of permission flag names into a Discord bitfield string."""
+    total = 0
+    for n in names or []:
+        if n in NAME_TO_BIT:
+            total |= 1 << NAME_TO_BIT[n]
+    return str(total)
+
+
 class DiscordAPI:
     def __init__(self, token):
         self.headers = {"Authorization": f"Bot {token}", "Content-Type": "application/json"}
@@ -694,6 +708,23 @@ def cmd_inspect(guild_id=None, json_out=None):
 
 
 # ---------------------------------------------------------------------------
+# server  —  launch the live AI server-manager bot
+# ---------------------------------------------------------------------------
+def cmd_server(config_path="server_config.json"):
+    step_header(1, "Launch the AI server manager")
+    try:
+        from discord_agent import run_server
+    except ImportError as e:
+        fail(f"Couldn't load the server module: {e}")
+        info("Install the extras with:  pip install -r requirements.txt")
+        return
+    info(f"Config: {config_path if os.path.exists(config_path) else 'defaults (no server_config.json found)'}")
+    info("Starting bot... press Ctrl+C to stop.")
+    console.print()
+    run_server(config_path)
+
+
+# ---------------------------------------------------------------------------
 # interactive menu
 # ---------------------------------------------------------------------------
 def interactive():
@@ -702,7 +733,7 @@ def interactive():
         console.print()
         choice = Prompt.ask(
             "What do you want to do?",
-            choices=["prompt", "validate", "apply", "inspect", "exit"],
+            choices=["prompt", "validate", "apply", "inspect", "server", "exit"],
             default="prompt",
         )
         if choice == "prompt":
@@ -717,6 +748,8 @@ def interactive():
             gid = Prompt.ask("Guild ID (blank to use DISCORD_GUILD_ID from .env)", default="")
             save = Prompt.ask("Export path for the full config (blank to skip)", default="")
             cmd_inspect(gid or None, save or None)
+        elif choice == "server":
+            cmd_server()
         else:
             break
 
@@ -743,6 +776,10 @@ def main():
     p_inspect.add_argument("--json", dest="json_out", default=None,
                            help="Export the full server config to this JSON file")
 
+    p_server = sub.add_parser("server", help="Launch the live AI server-manager bot")
+    p_server.add_argument("--config", dest="config_path", default="server_config.json",
+                          help="Path to the server config JSON (default: server_config.json)")
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -758,6 +795,8 @@ def main():
         cmd_apply(args.config, args.yes)
     elif args.command == "inspect":
         cmd_inspect(args.guild_id, args.json_out)
+    elif args.command == "server":
+        cmd_server(args.config_path)
 
 
 if __name__ == "__main__":

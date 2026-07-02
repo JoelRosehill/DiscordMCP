@@ -29,6 +29,7 @@
 | :rocket: **One-Click Apply** | Pushes the full configuration to your Discord server: guild settings, roles (with hierarchy), categories, channels, and permission overwrites. |
 | :framed_picture: **Rich Preview** | Uses the `rich` library to render colorful tables of roles and tree views of your channel structure before applying. |
 | :mag: **Live Server Inspection** | Read an existing server back out — roles with decoded permissions, channel/category tree with overwrites, plus boosts, features, emojis and member counts — and export it all to a re-appliable JSON config. |
+| :robot: **Live AI Server Manager** | Run a Python bot that listens in a dedicated admin channel and manages your server from plain-English chat. It re-reads the live server every message, so it always acts on current context, and carries out changes through real Discord API tools. |
 | :shield: **Safe by Default** | Rate-limit aware, confirmation prompts before destructive changes, and full validation before any API calls. |
 
 ## How It Works
@@ -89,7 +90,7 @@ echo "DISCORD_GUILD_ID=your-server-id"  >> .env
 python discord_builder.py
 ```
 
-Opens a menu where you can choose between `prompt`, `validate`, `apply`, `inspect`, and `exit`.
+Opens a menu where you can choose between `prompt`, `validate`, `apply`, `inspect`, `server`, and `exit`.
 
 ### Commands
 
@@ -140,6 +141,65 @@ or diffing what's live against what you intend to apply.
 
 > The bot only needs to be a member of the server with `View Channels` /
 > `Manage Roles` to inspect it — no destructive permissions required.
+
+### Live AI Server Manager (`server`)
+
+Instead of the one-shot generate → apply flow, the `server` command launches a
+long-running bot that lives in your server and manages it conversationally. You
+talk to it in a dedicated admin channel; for **every** message it first pulls a
+fresh snapshot of the server (guild settings, roles + decoded permissions,
+categories, channels) so it always has current context, then carries out the
+change by calling real Discord API tools — creating/editing/deleting roles and
+channels, setting permission overwrites, and updating server settings.
+
+```bash
+# 1. Add your Anthropic API key alongside the Discord credentials
+echo "ANTHROPIC_API_KEY=sk-ant-..." >> .env
+
+# 2. (Optional) copy the example config and tweak it
+cp example_server_config.json server_config.json
+
+# 3. Launch the bot
+python discord_builder.py server
+# or run the module directly:
+python discord_agent.py
+```
+
+Then, in the admin channel:
+
+```text
+you: create a #announcements channel that only the Mods role can post in
+bot: Created the #announcements text channel and locked it down — @everyone can
+     view and read but can't send; Mods keep send access. ✅
+
+you: give the Moderators role kick and timeout permissions, and hoist it
+bot: Updated Moderators: added Kick Members and Moderate Members, and it now
+     shows separately in the member list.
+```
+
+**How it stays in context:** the model is powered by Claude (`claude-opus-4-8`
+with adaptive thinking) and receives the live server snapshot on every turn, so
+it never works from stale assumptions. It keeps a short per-channel
+conversation history for follow-ups ("actually make it voice instead"), and
+carries out each action through a typed tool rather than guessing.
+
+**Configuration** (`server_config.json`, all optional — see
+[`example_server_config.json`](example_server_config.json)):
+
+| Field | Default | Description |
+|---|---|---|
+| `admin_channel` | `"server-admin"` | Channel the bot listens in (name without `#`, or a raw channel ID). Override per-run with the `DISCORD_ADMIN_CHANNEL` env var. |
+| `require_manage_guild` | `true` | Only members with **Manage Server** (or Administrator) can command the bot. |
+| `allow_deletes` | `true` | Whether the bot may delete roles/channels. Set `false` for a read/create-only bot. |
+| `effort` | `"high"` | Claude reasoning effort: `low` / `medium` / `high` / `max`. |
+| `max_history_turns` | `12` | How many prior turns of conversation to remember per channel. |
+| `persona` | `""` | Extra house-rules appended to the system prompt (naming conventions, tone, etc.). |
+
+> **Requirements:** enable the **Message Content** privileged intent for your
+> bot in the Discord Developer Portal, and give it `Manage Roles`,
+> `Manage Channels`, and `Manage Server` permissions. The bot can only manage
+> roles below its own in the hierarchy. Destructive or ambiguous requests are
+> confirmed in chat before anything is changed.
 
 ## Config Format
 
@@ -224,11 +284,14 @@ python discord_builder.py apply my_server.json
 
 ```
 .
-├── discord_builder.py    # Main CLI tool
-├── example_config.json   # Example configuration with comments
-├── config.json           # Your configuration (gitignored)
-├── requirements.txt      # Python dependencies
-├── .env                  # Bot credentials (gitignored)
+├── discord_builder.py         # Main CLI tool (prompt / validate / apply / inspect / server)
+├── discord_agent.py           # Live AI server-manager bot (used by `server`)
+├── example_config.json        # Example server configuration
+├── example_server_config.json # Example bot config for the AI manager
+├── config.json                # Your configuration (gitignored)
+├── server_config.json         # Your bot config (optional)
+├── requirements.txt           # Python dependencies
+├── .env                       # Bot credentials + ANTHROPIC_API_KEY (gitignored)
 ├── assets/               # SVG screenshots for README
 │   ├── banner.svg
 │   ├── validate.svg
