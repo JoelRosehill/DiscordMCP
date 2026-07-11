@@ -226,10 +226,12 @@ before anything changes.
 | `model` | `"gemma4:12b"` | The Ollama model — must support tool calling. Override with the `OLLAMA_MODEL` env var. |
 | `ollama_host` | `"http://localhost:11434"` | Where Ollama is listening. Override with `OLLAMA_HOST`. |
 | `temperature` | `0.0` | Sampling temperature. |
-| `admin_channel` | `"server-admin"` | Channel the bot listens in (name without `#`, or a raw channel ID). Override with `DISCORD_ADMIN_CHANNEL`. |
+| `admin_channel` | `"bot-manager-chat"` | Channel the bot listens in (name without `#`, or a raw channel ID). Override with `DISCORD_ADMIN_CHANNEL`. |
 | `require_manage_guild` | `true` | Only members with **Manage Server** (or Administrator) can command the bot. |
 | `allow_deletes` | `true` | Whether the bot may delete roles/channels. Set `false` for a read/create-only bot. |
 | `max_history_turns` | `12` | How many prior turns of conversation to remember per channel. |
+| `ollama_context_size` | `8192` | Context window sent to Ollama as `num_ctx`. Override with `OLLAMA_NUM_CTX`. |
+| `max_snapshot_chars` | `8000` | Max compact live-server snapshot characters before the bot summarizes. Override with `OLLAMA_MAX_SNAPSHOT_CHARS`. |
 | `persona` | `""` | Extra house-rules appended to the system prompt (naming conventions, tone, etc.). |
 
 > **Requirements:** [Ollama](https://ollama.com) running locally with a

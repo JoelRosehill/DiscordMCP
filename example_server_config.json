@@ -6,5 +6,7 @@
   "require_manage_guild": true,
   "allow_deletes": true,
   "max_history_turns": 12,
+  "ollama_context_size": 8192,
+  "max_snapshot_chars": 8000,
   "persona": "Prefer lowercase-hyphenated channel names. Keep the role hierarchy tidy and explain trade-offs briefly when a request has security implications."
 }
