@@ -24,6 +24,7 @@ import sys
 import time
 
 import requests
+from console_utf8 import enable_utf8
 from dotenv import load_dotenv
 from rich import box
 from rich.console import Console
@@ -33,6 +34,8 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 from rich.text import Text
 from rich.tree import Tree
+
+enable_utf8()
 
 console = Console()
 ACCENT = "#5865F2"
